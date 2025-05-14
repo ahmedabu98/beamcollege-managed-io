@@ -1,0 +1,30 @@
+plugins {
+    id 'java'
+}
+
+repositories {
+    mavenCentral()
+}
+
+def beam_version = "2.59.0"
+
+dependencies {
+    implementation "org.apache.beam:beam-sdks-java-core:$beam_version"
+    implementation "org.apache.beam:beam-sdks-java-io-iceberg:$beam_version"
+    implementation "org.apache.beam:beam-sdks-java-io-google-cloud-platform:$beam_version"
+    implementation "org.apache.beam:beam-sdks-java-io-expansion-service:$beam_version" // contains catalogs
+    implementation "org.apache.beam:beam-sdks-java-managed:$beam_version"
+    runtimeOnly "org.apache.hadoop:hadoop-client:3.4.1"
+    runtimeOnly "com.google.cloud.bigdataoss:gcs-connector:hadoop2-2.2.26"
+    runtimeOnly "org.apache.iceberg:iceberg-gcp:1.6.1"
+
+    runtimeOnly "org.apache.beam:beam-runners-direct-java:$beam_version"
+    implementation "org.apache.beam:beam-runners-google-cloud-dataflow-java:$beam_version"
+}
+
+tasks.create(name:"execute", type:JavaExec) {
+    main = project.hasProperty("mainClass") ? project.getProperty("mainClass") : "NONE"
+    classpath = sourceSets.main.runtimeClasspath
+    systemProperties System.getProperties()
+    args project.hasProperty("exec.args") ? project.getProperty("exec.args").split() : []
+}
