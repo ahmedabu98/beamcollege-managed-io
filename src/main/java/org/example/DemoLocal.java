@@ -17,12 +17,6 @@
  */
 package org.example;
 
-import static org.apache.beam.sdk.util.Preconditions.checkStateNotNull;
-import static org.apache.beam.sdk.values.TypeDescriptors.iterables;
-import static org.apache.beam.sdk.values.TypeDescriptors.kvs;
-import static org.apache.beam.sdk.values.TypeDescriptors.longs;
-import static org.apache.beam.sdk.values.TypeDescriptors.rows;
-import static org.apache.beam.sdk.values.TypeDescriptors.strings;
 
 import java.io.IOException;
 import java.lang.reflect.Array;
@@ -32,22 +26,17 @@ import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
 import org.apache.beam.sdk.Pipeline;
-import org.apache.beam.sdk.coders.IterableCoder;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
-import org.apache.beam.sdk.coders.VarLongCoder;
 import org.apache.beam.sdk.managed.Managed;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.SchemaCoder;
 import org.apache.beam.sdk.transforms.Count;
-import org.apache.beam.sdk.transforms.GroupByKey;
 import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.WithKeys;
-import org.apache.beam.sdk.transformservice.launcher.TransformServiceLauncher;
-import org.apache.beam.sdk.util.construction.ExternalTranslationOptions;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.Row;
@@ -55,36 +44,15 @@ import org.apache.beam.sdk.values.TypeDescriptors;
 import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.collect.ImmutableMap;
 
 public class DemoLocal {
-    private static int findAvailablePort() throws IOException {
-        ServerSocket s = new ServerSocket(0);
-        try {
-            return s.getLocalPort();
-        } finally {
-            s.close();
-            try {
-                // Some systems don't free the port for future use immediately.
-                Thread.sleep(100);
-            } catch (InterruptedException exn) {
-                // ignore
-            }
-        }
-    }
-    public static void main(String[] args) throws IOException, TimeoutException {
+    public static void main(String[] args) {
         Map<String, String> catalogProps = ImmutableMap.of(
             "type", "hadoop",
             "warehouse", "gs://beamcollege-ahmedabualsaud",
             "io-impl", "org.apache.iceberg.gcp.gcs.GCSFileIO");
         String sourceTable = "beamcollege.source_table";
         String destTable = "beamcollege.dest_table";
-
-        int port = findAvailablePort();
-        TransformServiceLauncher service = TransformServiceLauncher.forProject("projectName", port, null);
-        service.setBeamVersion("2.64.0");
-        service.start();
-        service.waitTillUp(-1);
-
         PipelineOptions options = PipelineOptionsFactory.fromArgs(args).create();
-        options.as(ExternalTranslationOptions.class).setTransformServiceAddress("localhost:" + port);
+
         Pipeline p = Pipeline.create(options);
         System.out.println("xxx " + p.getOptions());
         PCollection<Row> input = p
@@ -92,6 +60,7 @@ public class DemoLocal {
                 .withConfig(
                     ImmutableMap.of(
                         "table", sourceTable,
+//                      "filter", "\"id\" > 200 AND \"id\" < 500",
                         "catalog_properties", catalogProps)))
             .getSinglePCollection();
         input
@@ -102,7 +71,6 @@ public class DemoLocal {
                 .withConfig(
                     ImmutableMap.of(
                         "table", destTable,
-//                      "filter", "\"id\" > 200 AND \"id\" < 500",
                         "catalog_properties", catalogProps)))
         ;
 
