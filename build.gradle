@@ -19,6 +19,7 @@ dependencies {
     runtimeOnly "org.apache.iceberg:iceberg-gcp:1.6.1"
 
     runtimeOnly "org.apache.beam:beam-runners-direct-java:$beam_version"
+    implementation "org.apache.beam:beam-runners-portability-java:$beam_version"
     implementation "org.apache.beam:beam-runners-google-cloud-dataflow-java:$beam_version"
 }
 
