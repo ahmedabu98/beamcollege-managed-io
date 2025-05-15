@@ -19,17 +19,16 @@ package org.example;
 
 
 import java.io.IOException;
-import java.lang.reflect.Array;
-import java.net.ServerSocket;
-import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
+import org.apache.beam.runners.portability.PortableRunner;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
+import org.apache.beam.sdk.io.GenerateSequence;
 import org.apache.beam.sdk.managed.Managed;
-import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.sdk.options.PortablePipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.SchemaCoder;
@@ -44,25 +43,37 @@ import org.apache.beam.sdk.values.TypeDescriptors;
 import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.collect.ImmutableMap;
 
 public class DemoLocal {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException, TimeoutException {
         Map<String, String> catalogProps = ImmutableMap.of(
             "type", "hadoop",
-            "warehouse", "gs://beamcollege-ahmedabualsaud",
-            "io-impl", "org.apache.iceberg.gcp.gcs.GCSFileIO");
+            "warehouse", "file:///Users/ahmedabualsaud/github/beamcollege-managed-io/warehouse");
         String sourceTable = "beamcollege.source_table";
-        String destTable = "beamcollege.dest_table";
-        PipelineOptions options = PipelineOptionsFactory.fromArgs(args).create();
+        String destTable = "beamcollege.dest_table_23";
+        PortablePipelineOptions options = PipelineOptionsFactory.fromArgs(args).as(PortablePipelineOptions.class);
+        options.setJobEndpoint("localhost:12321");
+        options.setRunner(PortableRunner.class);
 
+        
+        Schema schema = Schema.builder()
+            .addInt64Field("id")
+            .addStringField("name")
+            .addBooleanField("bool")
+            .build();
+        
         Pipeline p = Pipeline.create(options);
-        System.out.println("xxx " + p.getOptions());
         PCollection<Row> input = p
-            .apply(Managed.read(Managed.ICEBERG)
+            .apply(GenerateSequence.from(0).to(100))
+            .apply(MapElements.into(TypeDescriptors.rows())
+                .via(i -> Row.withSchema(schema)
+                    .addValues(Integer.valueOf(String.valueOf(i)), String.valueOf((char) ('a' + i % 26)), i % 3 == 0)
+                    .build())).setRowSchema(schema)
+            .apply(Managed.write(Managed.ICEBERG)
                 .withConfig(
                     ImmutableMap.of(
                         "table", sourceTable,
-//                      "filter", "\"id\" > 200 AND \"id\" < 500",
                         "catalog_properties", catalogProps)))
             .getSinglePCollection();
+
         input
             .apply(CapitalizeStrings.of("name"))
             .apply(Count.perKey())
@@ -71,8 +82,7 @@ public class DemoLocal {
                 .withConfig(
                     ImmutableMap.of(
                         "table", destTable,
-                        "catalog_properties", catalogProps)))
-        ;
+                        "catalog_properties", catalogProps)));
 
         p.run().waitUntilFinish();
     }
