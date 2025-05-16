@@ -17,19 +17,16 @@
  */
 package org.example;
 
+import static org.apache.beam.sdk.util.Preconditions.checkStateNotNull;
 
-import java.io.IOException;
-import java.lang.reflect.Array;
-import java.net.ServerSocket;
-import java.util.Arrays;
 import java.util.Map;
-import java.util.concurrent.TimeoutException;
 
+import org.apache.beam.runners.dataflow.DataflowRunner;
+import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.managed.Managed;
-import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.SchemaCoder;
@@ -45,41 +42,45 @@ import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.collect.Immuta
 
 public class DemoLocal {
     public static void main(String[] args) {
-        Map<String, String> catalogProps = ImmutableMap.of(
-            "type", "hadoop",
-            "warehouse", "gs://beamcollege-ahmedabualsaud",
-            "io-impl", "org.apache.iceberg.gcp.gcs.GCSFileIO");
+        DataflowPipelineOptions options = PipelineOptionsFactory.as(DataflowPipelineOptions.class);
+        options.setProject("apache-beam-testing");
+        options.setRegion("us-central1");
+        options.setRunner(DataflowRunner.class);
+
+        Map<String, String> catalogProps =
+            ImmutableMap.of(
+                "type", "hadoop",
+                "warehouse", "gs://beamcollege-ahmedabualsaud",
+                "io-impl", "org.apache.iceberg.gcp.gcs.GCSFileIO");
         String sourceTable = "beamcollege.source_table";
-        String destTable = "beamcollege.dest_table";
-        PipelineOptions options = PipelineOptionsFactory.fromArgs(args).create();
+        String destTable = "beamcollege.new_dest_table";
 
         Pipeline p = Pipeline.create(options);
-        System.out.println("xxx " + p.getOptions());
-        PCollection<Row> input = p
-            .apply(Managed.read(Managed.ICEBERG)
-                .withConfig(
-                    ImmutableMap.of(
-                        "table", sourceTable,
-//                      "filter", "\"id\" > 200 AND \"id\" < 500",
-                        "catalog_properties", catalogProps)))
-            .getSinglePCollection();
+        PCollection<Row> input =
+            p.apply(
+                    Managed.read(Managed.ICEBERG)
+                        .withConfig(
+                            ImmutableMap.of(
+                                "table", sourceTable,
+                                "catalog_properties", catalogProps)))
+                .getSinglePCollection()
+                .apply(PrintElements.of());
         input
             .apply(CapitalizeStrings.of("name"))
             .apply(Count.perKey())
             .apply(WordCountRows.create())
-            .apply(Managed.write(Managed.ICEBERG)
-                .withConfig(
-                    ImmutableMap.of(
-                        "table", destTable,
-                        "catalog_properties", catalogProps)))
-        ;
+            .apply(
+                Managed.write(Managed.ICEBERG)
+                    .withConfig(
+                        ImmutableMap.of(
+                            "table", destTable,
+                            "catalog_properties", catalogProps)));
 
         p.run().waitUntilFinish();
     }
 
     static class WordCountRows extends PTransform<PCollection<KV<String, Long>>, PCollection<Row>> {
-        Schema schema = Schema.builder()
-            .addStringField("name").addInt64Field("count").build();
+        Schema schema = Schema.builder().addStringField("name").addInt64Field("count").build();
 
         static WordCountRows create() {
             return new WordCountRows();
@@ -88,20 +89,21 @@ public class DemoLocal {
         @Override
         public PCollection<Row> expand(PCollection<KV<String, Long>> input) {
             return input
-                    .apply(
-                        MapElements.into(TypeDescriptors.rows())
-                            .via(kv -> {
-                                    System.out.println(kv.getKey() + ": " + kv.getValue());
-                                    Row row = Row.withSchema(schema)
-                                        .addValues(kv.getKey(), kv.getValue())
-                                        .build();
-                                    return row;
-                                }))
+                .apply(
+                    MapElements.into(TypeDescriptors.rows())
+                        .via(
+                            kv -> {
+                                System.out.println(kv.getKey() + ": " + kv.getValue());
+                                Row row =
+                                    Row.withSchema(schema).addValues(kv.getKey(), kv.getValue()).build();
+                                return row;
+                            }))
                 .setRowSchema(schema);
         }
     }
 
-    static class CapitalizeStrings extends PTransform<PCollection<Row>, PCollection<KV<String, Row>>> {
+    static class CapitalizeStrings
+        extends PTransform<PCollection<Row>, PCollection<KV<String, Row>>> {
         private final String field;
 
         CapitalizeStrings(String field) {
@@ -115,12 +117,36 @@ public class DemoLocal {
         @Override
         public PCollection<KV<String, Row>> expand(PCollection<Row> input) {
             return input
-                    .apply(MapElements.into(TypeDescriptors.rows())
-                        .via(r -> Row.fromRow(r).withFieldValue(field,
-                            r.getString(field).toUpperCase()).build()))
+                .apply(
+                    MapElements.into(TypeDescriptors.rows())
+                        .via(
+                            r ->
+                                Row.fromRow(r)
+                                    .withFieldValue(
+                                        field, checkStateNotNull(r.getString(field)).toUpperCase())
+                                    .build()))
                 .setRowSchema(input.getSchema())
                 .apply(WithKeys.of(r -> r.getString("name")))
                 .setCoder(KvCoder.of(StringUtf8Coder.of(), SchemaCoder.of(input.getSchema())));
+        }
+    }
+
+    static class PrintElements extends PTransform<PCollection<Row>, PCollection<Row>> {
+        static PrintElements of() {
+            return new PrintElements();
+        }
+
+        @Override
+        public PCollection<Row> expand(PCollection<Row> input) {
+            return input
+                .apply(
+                    MapElements.into(TypeDescriptors.rows())
+                        .via(
+                            r -> {
+                                System.out.println("reading " + r);
+                                return r;
+                            }))
+                .setRowSchema(input.getSchema());
         }
     }
 }
